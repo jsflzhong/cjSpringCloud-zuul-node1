@@ -1,0 +1,15 @@
+参考笔记:
+    18.Spring boot Mybatis 整合
+
+基本配置:
+
+    1.pom和配置文件,见readme中的说明.
+
+    2.使用方式:
+
+        点击IDE的: run-Edit Configurations.
+        添加maven的配置. name:generator  Command line:mybatis-generator:generate -e
+        运行: 点击上方的generator--运行.
+
+
+

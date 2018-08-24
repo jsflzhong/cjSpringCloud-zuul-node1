@@ -1,0 +1,100 @@
+zuul网管.第一节点
+
+端口:8089
+
+配置:
+
+    #网关的反向代理路由配置.
+    #源请求的url
+    zuul.routes.api-a.path=/producer/**
+    #路由到的目标url.这里写service provider在eureka中注册时的应用名.
+    zuul.routes.api-a.serviceId=spring-cloud-producer
+    #上面的反向代理配置表示,所有针对: http://网关url:网关port/producer/xxxx的请求,都会被路由到eureka中的,以"spring-cloud-producer"命名的服务提供者上.
+    #例如: 请求http://localhost:8089/producer/hello?name=test, 会最终请求到本网关所注册到的eureka上的,以"spring-cloud-producer"命名的服务提供者上..
+
+
+启动类:
+
+    @EnableZuulProxy
+
+
+访问:
+
+    http://localhost:8089/producer/testHello?name=testZuul
+
+    (在这个类中:com.michael.springBoot.springCloud.TestFeign)
+
+    该请求实际会被反向代理到该网关所在的eureka中的,提供了"testHello"接口服务的服务提供者上.
+    #例如: 请求 http://localhost:8089/producer/testHello?name=testZuul,
+    #会最终请求到本网关所注册到的eureka上的,以"spring-cloud-producer"命名的服务提供者上,例如:http://localhost:8083/testHello?name=test或服务的第二节点:http://localhost:8085/testHello?name=test(由eureka负载均衡控制到底由哪个同名服务提供服务)
+
+    #反向代理已经更新,见application.properties配置文件.
+
+
+高级:
+    自定义网关Filter、熔断、重试、高可用.
+
+
+1.自定义网关Filter:
+
+    1.自定义过滤器
+        com.michael.springBoot.filters.MyZullFilter
+
+    2.把上述自定义过滤器加入启动队列
+        在启动类中加入@Bean
+
+    3.测试
+        启动俩eureka.
+        启动俩service provider.
+        启动本zuul项目.
+        测试访问页面:
+        第一次: http://localhost:8089/spring-cloud-producer/testHello?name=test (没有token)
+            结果:token is empty  (网关自定义的filter生效了,没带token参数就给拦截并返回了)
+        第二次 :http://localhost:8089/spring-cloud-producer/testHello?name=test&token=anything (有token)
+            结果: hello test,@@@this is testHello handler in ServiceProvider-node2
+        第三次:http://localhost:8089/spring-cloud-producer/testHello?name=test&token=anything (有token)
+            结果: hello test,@@@this is testHello handler in ServiceProvider-node1
+            (eureka负载均衡也在正常运行)
+
+
+2.路由熔断
+
+    当我们的后端服务出现异常的时候，我们不希望将异常抛出给最外层，期望服务可以自动进行一降级。
+    Zuul给我们提供了这样的支持。当某个服务出现异常时，直接返回我们预设的信息。
+
+    1.自定义熔断器:
+        com.michael.springBoot.springCloud.ProducerFusing
+
+    2.测试访问:
+        第一次:
+            http://localhost:8089/spring-cloud-producer/testHello?name=test&token=anything
+            结果:
+                hello test,@@@this is testHello handler in ServiceProvider-node1
+        第二次(停掉service provider-node2):
+
+            http://localhost:8089/spring-cloud-producer/testHello?name=test&token=anything
+            结果:返回个带三个tab标签的页.打开第二个标签页:"原始数据",里面显示:@@@The service is unavailable.
+        结论:
+            zuul熔断器正常生效!
+
+    亲测分析:
+
+        记得之前测出过:eureka与服务之间的心跳是有间隔的,意思是,如果服务B挂了,那么eureka在下个心跳时间之前,是不知道的,
+        它的服务列表中还会有该服务B,在此期间,如果客户端的请求被分配到服务B,则会触发熔断,返回熔断信息.
+        但是,如果到了下个心跳时间了,那么服务B就会被从eureka的服务列表中去除,则不会再发生针对该种服务的熔断了!
+
+        这个理解,也解释了下面路由重试的后面,作者的话:"不用retry，仅使用负载均衡和熔断，
+        就必须考虑到是否能够接受单个服务实例关闭和eureka刷新服务列表之间带来的短时间的熔断。如果可以接受，就无需使用retry。".
+
+        要记住重要的一点概念: 当服务挂了后,eureka不是第一时间就能发现并从它的服务列表中去除该服务的! 要等下个心跳时间!
+
+
+3.路由重试
+
+    有时候因为网络或者其它原因，服务可能会暂时的不可用，这个时候我们希望可以再次对服务进行重试
+
+    1>.依赖
+
+    2>.
+
+
