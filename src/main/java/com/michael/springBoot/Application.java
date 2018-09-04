@@ -1,7 +1,8 @@
 package com.michael.springBoot;
 
 import com.michael.springBoot.dao.BaseMapper;
-import com.michael.springBoot.filters.MyZullFilter;
+import com.michael.springBoot.filters.MyZullFilter_POST;
+import com.michael.springBoot.filters.MyZullFilter_PRE;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -26,7 +27,19 @@ public class Application {
      * @author cj
      */
     @Bean
-    public MyZullFilter tokenFilter() {
-        return new MyZullFilter();
+    public MyZullFilter_PRE tokenFilter() {
+        return new MyZullFilter_PRE();
     }
+
+    /**
+     * 将自定义的zuul过滤器加入启动队列
+     *
+     * @return 自定义的zuul过滤器
+     * @author cj
+     */
+    @Bean
+    public MyZullFilter_POST tokenFilter2() {
+        return new MyZullFilter_POST();
+    }
+
 }

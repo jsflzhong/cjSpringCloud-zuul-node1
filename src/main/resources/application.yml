@@ -52,3 +52,35 @@ pagehelper:
     reasonable: true
     supportMethodsArguments: true
     params: count=countSql
+
+
+#zuul相关:
+zuul:
+  routes:
+    admin-service:
+      path: /admin/**
+      url: http://127.0.0.1:6200
+      strip-prefix: false
+    eureka-service:
+      path: /eureka/**
+      serviceId: eureka-service
+      strip-prefix: false
+    sign-service:
+      path: /sign/**
+      serviceId: sign-service
+      strip-prefix: false
+    #上面几个是jy的几个项目,暂留供参考.
+    spring-cloud-producer:
+      path: /producer/**
+      serviceId: spring-cloud-producer
+      strip-prefix: true
+  add-host-header: true
+  host:
+    connect-timeout-millis: 10000
+    socket-timeout-millis: 60000
+    max-total-connections: 800
+ribbon:
+  #路由时的最大等待时间.超过该时间就进熔断.
+  ReadTimeout: 60000
+  ConnectTimeout: 60000
+

@@ -6,11 +6,24 @@ zuul网管.第一节点
 
     #网关的反向代理路由配置.
     #源请求的url
-    zuul.routes.api-a.path=/producer/**
+    zuul.routes.api-a.path=/producer/**   (20180903: 注意, api-a 是服务名,后面有个点,再后面,也就是等号左边的path和下行的serviceId,才是要配置的两个不同项,以左边的api-a这个服务名来上下匹配成为一组)
     #路由到的目标url.这里写service provider在eureka中注册时的应用名.
     zuul.routes.api-a.serviceId=spring-cloud-producer
     #上面的反向代理配置表示,所有针对: http://网关url:网关port/producer/xxxx的请求,都会被路由到eureka中的,以"spring-cloud-producer"命名的服务提供者上.
     #例如: 请求http://localhost:8089/producer/hello?name=test, 会最终请求到本网关所注册到的eureka上的,以"spring-cloud-producer"命名的服务提供者上..
+
+    20180903再次说明一下路由映射的配置:
+    以yml为例比较好看:
+zuul:
+  routes:
+    spring-cloud-producer:
+    path: /producer/**
+    serviceId: spring-cloud-producer
+
+    这个的意思是: 凡是访问地址符合/producer/**规则的时候,会被自动定位到spring-cloud-producer服务上去. (两块都是上面的value值,而不是key,key是固定的写法.)
+    上面第三行的" spring-cloud-producer:"是服务名,但是应该只是好看,而没有实际的匹配功能.
+
+
 
 
 启动类:
@@ -29,6 +42,7 @@ zuul网管.第一节点
     #会最终请求到本网关所注册到的eureka上的,以"spring-cloud-producer"命名的服务提供者上,例如:http://localhost:8083/testHello?name=test或服务的第二节点:http://localhost:8085/testHello?name=test(由eureka负载均衡控制到底由哪个同名服务提供服务)
 
     #反向代理已经更新,见application.properties配置文件.
+    #***重点: 所有同服务的多点,都用同一个应用名注册在eureka上!
 
 
 高级:
@@ -40,7 +54,7 @@ zuul网管.第一节点
     1.自定义过滤器
         com.michael.springBoot.filters.MyZullFilter
 
-    2.把上述自定义过滤器加入启动队列
+    2.把上述自定义过滤器加入启动队列 (注意,这一步不要忘记, 过滤器是需要在配置中配置一下的!)
         在启动类中加入@Bean
 
     3.测试
@@ -63,19 +77,108 @@ zuul网管.第一节点
     Zuul给我们提供了这样的支持。当某个服务出现异常时，直接返回我们预设的信息。
 
     1.自定义熔断器:
-        com.michael.springBoot.springCloud.ProducerFusing
+        com.michael.springBoot.springCloud.ProducerFusing (就这一个类即可.另外同包下的两个是之前feign的)
 
     2.测试访问:
         第一次:
-            http://localhost:8089/spring-cloud-producer/testHello?name=test&token=anything
+            http://localhost:8089/spring-cloud-producer/testHello?name=test&token=anything (是zuul的url)
             结果:
                 hello test,@@@this is testHello handler in ServiceProvider-node1
+            再访问的结果:
+                hello test,@@@this is testHello handler in ServiceProvider-node2
+            两个服务会轮循.
+
         第二次(停掉service provider-node2):
 
             http://localhost:8089/spring-cloud-producer/testHello?name=test&token=anything
             结果:返回个带三个tab标签的页.打开第二个标签页:"原始数据",里面显示:@@@The service is unavailable.
         结论:
             zuul熔断器正常生效!
+
+
+        20180830:结合SpringCloud-admin测试:
+            在SpringCloud-admin中把service provider-node2停掉后,再次访问上述zuul:
+            还是会两个服务轮循!
+            当半分钟左后之后,会返回: @@@The fusing works in zuul,the service is unavailable.(在Body-Raw中)
+            该信息对应:org.springframework.http.client.ClientHttpResponse#getBody 里面自定义的信息.
+            结论:
+            SpringCloud-admin对于服务的下线,对zuul是有效的,zuul会发生熔断.
+            但是,虽然下线后会立刻在eureka上显示出来该服务已经下线,
+            但是,zuul中不会立刻生效,即,不会立刻发生熔断,还是会正常请求到该服务.
+            也就是说,eureka中的提供服务的进程,还没有刷新.
+            需要等到下个心跳时间才可以生效.
+
+            但是:
+            过一会再请求zuul的地址时,发现只会反复调用服务节点1了.
+
+            但是:
+            当把最后的服务节点1也用admin下线后,再访问zuul,会发现返回的是:
+            {"timestamp":1535612324015,"status":404,"error":"Not Found","message":"No message available","path":"/spring-cloud-producer/testHello"}
+            而不是熔断信息了!
+            这个待解决......
+
+            但是:
+            再次打开服务节点2,调用zuul后,居然熔断了:
+            @@@The fusing works in zuul,the service is unavailable.
+            等过一会再请求时,就会反复是服务节点2来提供服务了.
+
+
+        20180831:再测:
+            1.如果用eureka关闭服务,则zuul的熔断不会发挥作用.
+            2.如果直接把服务从IDE中关闭,则zuul的熔断会发挥作用.
+                熔断的情况是: 先进熔断,后进filter_post.这个要注意.
+
+            3.发现zuul的bug:
+                var bug1 =
+                    "当: 先用admin把服务都下了,然后关闭zuul,然后再启动zuul后,那么所有对zuul的访问,都不会进入到"zuul的filter",而是会进入到"springboot的fitler"!
+                     即,这种情况下zuul的filter是失效的!"
+
+        ###################################################20180903########################################################
+
+
+            1.由erureka admin把服务下线后(实际上走的是actuator的end point),无法进入zuul的fall back的原因,应该是找到了:
+                是因为在zuul中,自己没有配置手动映射路由关系,而是让zuul自动根据服务名和请求的url路径自动匹配,而导致的.
+                (这是一个在任何地方都没查到答案的深坑!)
+
+            2.解决方案:
+                手动配置路由规则,即可,例如:
+
+        zuul:
+          routes:
+            admin-service:
+              path: /admin/**
+              url: http://127.0.0.1:6200
+              strip-prefix: false
+            eureka-service:
+              path: /eureka/**
+              serviceId: eureka-service
+              strip-prefix: false
+            sign-service:
+              path: /sign/**
+              serviceId: sign-service
+              strip-prefix: false
+            spring-cloud-producer:
+              path: /producer/**
+              serviceId: spring-cloud-producer
+              strip-prefix: false
+
+
+        解释: 凡是访问地址符合/producer/**规则的时候,会被自动定位到spring-cloud-producer服务上去.
+
+
+        strip-prefix: false的解释:
+        当strip-prefix=true的时候 （http://localhost:5016/api/provide-user/1 -> http://localhost:4011/1）
+        当strip-prefix=false的时候（http://localhost:5016/api/provide-user/1 -> http://localhost:4011/api/1）
+
+        即,当该值是false的时候,路由的目标服务时,是不带目标服务的项目名的.
+
+
+        同时;
+            当手工配置了路由规则后,经测试,上面提到的 ${bug1} 也消失了.
+
+
+        #################################################20180903##########################################################
+
 
     亲测分析:
 
